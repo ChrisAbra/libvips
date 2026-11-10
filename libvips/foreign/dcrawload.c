@@ -1,6 +1,9 @@
 /* load RAW camera files with libraw
  *
- * 15/8/25 dvdkon
+ *
+ * 10/11/26 chrisabra
+ *  - change the default gamma curve and report back correct ICC profile
+ *  15/8/25 dvdkon
  *	- handle image rotation
  * 15/6/26
  *	- add raw-preview-data, the largest embedded preview jpeg
@@ -150,6 +153,13 @@ vips_foreign_load_dcraw_open(VipsForeignLoadDcRaw *raw)
 	 */
 	raw->raw_processor->params.half_size = raw->half_size;
 
+	/* sRGB */
+	raw->raw_processor->params.output_color = 1;
+
+	/* LibRaw defaults to the BT.709 transfer curve. Request sRGB instead. */
+	raw->raw_processor->params.gamm[0] = 1.0 / 2.4;
+	raw->raw_processor->params.gamm[1] = 12.92;
+
 	/* Apply camera white balance.
 	 */
 	raw->raw_processor->params.use_camera_wb = 1;
@@ -227,7 +237,7 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 		g_date_time_unref(dt);
 	}
-#else /*!GLIB_CHECK_VERSION(2, 62, 0)*/
+#else  /*!GLIB_CHECK_VERSION(2, 62, 0)*/
 	GTimeVal val = { raw->raw_processor->other.timestamp, 0 };
 
 	char *str = g_time_val_to_iso8601(&val);
@@ -248,10 +258,26 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 		raw->raw_processor->lens.Lens);
 #endif /*LIBRAW_COMPILE_CHECK_VERSION_NOTLESS(0, 17)*/
 
-	if (raw->raw_processor->color.profile)
-		vips_image_set_blob_copy(image, VIPS_META_ICC_NAME,
-			raw->raw_processor->color.profile,
-			raw->raw_processor->color.profile_length);
+	VipsBlob *profile = NULL;
+
+	const char *profile_name =
+		raw->processed ? (raw->processed->colors == 1 ? "sgrey" : "srgb") : (raw->raw_processor->idata.colors == 1 ? "sgrey" : "srgb");
+
+	if (vips_profile_load(profile_name, &profile, NULL))
+		return -1;
+
+	if (profile) {
+		size_t length;
+		const void *data = vips_blob_get(profile, &length);
+
+		vips_image_set_blob_copy(
+			image,
+			VIPS_META_ICC_NAME,
+			data,
+			length);
+
+		vips_area_unref((VipsArea *) profile);
+	}
 
 	int orientation;
 	switch (raw->raw_processor->sizes.flip) {
@@ -301,7 +327,7 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 #ifdef DEBUG
 		printf("dcrawload: thumb %d, width = %d, height = %d, format = %d\n",
-				i, this->twidth, this->twidth, this->tformat);
+			i, this->twidth, this->twidth, this->tformat);
 #endif /*DEBUG*/
 
 		// only support JPEG thumbnails for now
@@ -318,8 +344,7 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 		// thumbnails must be under 1mb
 		if (this->tlength < 1024 * 1024) {
-			libraw_thumbnail_item_t *thumb = thumb_index == -1 ?
-				NULL : &thumbs_list->thumblist[thumb_index];
+			libraw_thumbnail_item_t *thumb = thumb_index == -1 ? NULL : &thumbs_list->thumblist[thumb_index];
 
 			if (!thumb ||
 				this->twidth > thumb->twidth ||
@@ -328,14 +353,12 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 		}
 
 		// preview is just the largest
-		libraw_thumbnail_item_t *preview = preview_index == -1 ?
-			NULL : &thumbs_list->thumblist[preview_index];
+		libraw_thumbnail_item_t *preview = preview_index == -1 ? NULL : &thumbs_list->thumblist[preview_index];
 
 		if (!preview ||
 			this->twidth > preview->twidth ||
 			this->theight > preview->theight)
 			preview_index = i;
-
 	}
 
 	if (thumb_index != -1) {
@@ -407,8 +430,7 @@ vips_foreign_load_dcraw_header(VipsForeignLoad *load)
 		raw->raw_processor->sizes.iwidth,
 		raw->raw_processor->sizes.iheight,
 		bands,
-		raw->bitdepth > 8 ?
-			VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR,
+		raw->bitdepth > 8 ? VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR,
 		VIPS_CODING_NONE,
 		VIPS_INTERPRETATION_ERROR,
 		1.0, 1.0);
@@ -452,18 +474,17 @@ vips_foreign_load_dcraw_load(VipsForeignLoad *load)
 	}
 
 	if (!(raw->processed =
-			libraw_dcraw_make_mem_image(raw->raw_processor, &result))) {
+				libraw_dcraw_make_mem_image(raw->raw_processor, &result))) {
 		vips_foreign_load_dcraw_error(raw, _("unable to build image"), result);
 		return -1;
 	}
 
 	VipsImage *image;
 	if (!(image = vips_image_new_from_memory(
-		raw->processed->data, raw->processed->data_size,
-		raw->processed->width, raw->processed->height,
-		raw->processed->colors,
-		raw->bitdepth > 8 ?
-			VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR)))
+			  raw->processed->data, raw->processed->data_size,
+			  raw->processed->width, raw->processed->height,
+			  raw->processed->colors,
+			  raw->bitdepth > 8 ? VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR)))
 		return -1;
 
 	if (raw->bitdepth > 8)
@@ -471,11 +492,10 @@ vips_foreign_load_dcraw_load(VipsForeignLoad *load)
 			image->Type = VIPS_INTERPRETATION_GREY16;
 		else
 			image->Type = VIPS_INTERPRETATION_RGB16;
+	else if (raw->processed->colors < 3)
+		image->Type = VIPS_INTERPRETATION_B_W;
 	else
-		if (raw->processed->colors < 3)
-			image->Type = VIPS_INTERPRETATION_B_W;
-		else
-			image->Type = VIPS_INTERPRETATION_sRGB;
+		image->Type = VIPS_INTERPRETATION_sRGB;
 
 	if (vips_foreign_load_dcraw_set_metadata(raw, image)) {
 		VIPS_UNREF(image);
@@ -539,7 +559,6 @@ vips_foreign_load_dcraw_class_init(VipsForeignLoadDcRawClass *class)
 		VIPS_ARGUMENT_OPTIONAL_INPUT,
 		G_STRUCT_OFFSET(VipsForeignLoadDcRaw, half_size),
 		FALSE);
-
 }
 
 static void
@@ -759,8 +778,8 @@ vips_foreign_load_dcraw_buffer_init(VipsForeignLoadDcRawBuffer *buffer)
  * many others.
  *
  * The loader applies demosaicing and basic processing to produce an RGB or
- * grayscale image suitable for further processing. It attaches XMP and ICC
- * metadata, if present.
+ * grayscale image suitable for further processing. It attaches an ICC profile
+ * matching the output colour space, and copies XMP metadata if present.
  *
  * The loader will search for embedded, JPEG-encoded thumbnail and preview
  * images, attaching them as `jpeg-thumbnail-data` and `jpeg-preview-data`.
