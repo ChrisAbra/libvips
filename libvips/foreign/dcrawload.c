@@ -11,7 +11,6 @@
  *	- add no_auto_bright
  *	- corrected default gamma curve from BT.709 to sRGB
  *	- removed ICC profile setting
- *	  have one
 
  */
 
@@ -300,7 +299,7 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 		g_date_time_unref(dt);
 	}
-#else  /*!GLIB_CHECK_VERSION(2, 62, 0)*/
+#else /*!GLIB_CHECK_VERSION(2, 62, 0)*/
 	GTimeVal val = { raw->raw_processor->other.timestamp, 0 };
 
 	char *str = g_time_val_to_iso8601(&val);
@@ -369,7 +368,7 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 #ifdef DEBUG
 		printf("dcrawload: thumb %d, width = %d, height = %d, format = %d\n",
-			i, this->twidth, this->twidth, this->tformat);
+				i, this->twidth, this->twidth, this->tformat);
 #endif /*DEBUG*/
 
 		// only support JPEG thumbnails for now
@@ -386,7 +385,8 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 
 		// thumbnails must be under 1mb
 		if (this->tlength < 1024 * 1024) {
-			libraw_thumbnail_item_t *thumb = thumb_index == -1 ? NULL : &thumbs_list->thumblist[thumb_index];
+			libraw_thumbnail_item_t *thumb = thumb_index == -1 ?
+				NULL : &thumbs_list->thumblist[thumb_index];
 
 			if (!thumb ||
 				this->twidth > thumb->twidth ||
@@ -395,7 +395,8 @@ vips_foreign_load_dcraw_set_metadata(VipsForeignLoadDcRaw *raw,
 		}
 
 		// preview is just the largest
-		libraw_thumbnail_item_t *preview = preview_index == -1 ? NULL : &thumbs_list->thumblist[preview_index];
+		libraw_thumbnail_item_t *preview = preview_index == -1 ?
+			NULL : &thumbs_list->thumblist[preview_index];
 
 		if (!preview ||
 			this->twidth > preview->twidth ||
@@ -487,7 +488,8 @@ vips_foreign_load_dcraw_header(VipsForeignLoad *load)
 		raw->raw_processor->sizes.iwidth,
 		raw->raw_processor->sizes.iheight,
 		bands,
-		raw->bitdepth > 8 ? VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR,
+		raw->bitdepth > 8 ?
+			VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR,
 		VIPS_CODING_NONE,
 		vips_foreign_load_dcraw_interpretation(raw, bands),
 		1.0, 1.0);
@@ -530,17 +532,17 @@ vips_foreign_load_dcraw_load(VipsForeignLoad *load)
 	}
 
 	if (!(raw->processed =
-				libraw_dcraw_make_mem_image(raw->raw_processor, &result))) {
+			libraw_dcraw_make_mem_image(raw->raw_processor, &result))) {
 		vips_foreign_load_dcraw_error(raw, _("unable to build image"), result);
 		return -1;
 	}
 
 	VipsImage *image;
 	if (!(image = vips_image_new_from_memory(
-			  raw->processed->data, raw->processed->data_size,
-			  raw->processed->width, raw->processed->height,
-			  raw->processed->colors,
-			  raw->bitdepth > 8 ? VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR)))
+		raw->processed->data, raw->processed->data_size,
+		raw->processed->width, raw->processed->height,
+		raw->processed->colors,
+		raw->bitdepth > 8 ? VIPS_FORMAT_USHORT : VIPS_FORMAT_UCHAR)))
 		return -1;
 
 	image->Type = vips_foreign_load_dcraw_interpretation(raw,
