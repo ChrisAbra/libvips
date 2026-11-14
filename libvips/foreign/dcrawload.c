@@ -1,7 +1,7 @@
 /* load RAW camera files with libraw
  *
  *
- *  15/8/25 dvdkon
+ * 15/8/25 dvdkon
  *	- handle image rotation
  * 15/6/26
  *	- add raw-preview-data, the largest embedded preview jpeg
